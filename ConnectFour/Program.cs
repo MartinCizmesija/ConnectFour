@@ -16,6 +16,7 @@ namespace ConnectFour
             int[] availableFields = new int[7];
             var rand = new Random();
             int playingColumnNumber;
+            int maxDepth = 1;
             bool computerMove;
 
             //read who goes first
@@ -33,21 +34,32 @@ namespace ConnectFour
 
             while (true)
             {
-                if (computerMove) 
+                if (computerMove)
                 {
+                    Console.WriteLine("Computer move");
                     playingColumnNumber = rand.Next(0, 6);
                     playingBoard[availableFields[playingColumnNumber], playingColumnNumber] = 9;
 
                     Console.Write("|");
-                    for (int a = 0; a < 7; ++a)
+                    for (int a = 0; a < maxDepth; ++a) 
                     {
-                        if(playingBoard[availableFields[a],a] != 0)
+                        for (int b = 0; b < 7; ++b)
                         {
-                            Console.Write("  " + playingBoard[availableFields[a], a] + "  ");
-                            Console.Write("|");
-                        } else
+                            if (playingBoard[a, b] != 0)
+                            {
+                                Console.Write("  " + playingBoard[a, b] + "  ");
+                                Console.Write("|");
+                            }
+                            else
+                            {
+                                Console.Write("     ");
+                                Console.Write("|");
+                            }
+                        }
+
+                        if (a < maxDepth - 1)
                         {
-                            Console.Write("     ");
+                            Console.WriteLine("");
                             Console.Write("|");
                         }
                     }
@@ -55,6 +67,7 @@ namespace ConnectFour
                     Console.WriteLine("");
 
                     ++availableFields[playingColumnNumber];
+                    if(availableFields[playingColumnNumber] == maxDepth) ++maxDepth;
                     computerMove = false;
                 } else
                 {
@@ -64,18 +77,25 @@ namespace ConnectFour
                     playingBoard[availableFields[playingColumnNumber], playingColumnNumber] = 1;
 
                     Console.Write("|");
-
-
-                    for (int a = 0; a < 7; ++a)
+                    for (int a = 0; a < maxDepth; ++a)
                     {
-                        if (playingBoard[availableFields[a], a] != 0)
+                        for (int b = 0; b < 7; ++b)
                         {
-                            Console.Write("  " + playingBoard[availableFields[a], a] + "  ");
-                            Console.Write("|");
+                            if (playingBoard[a, b] != 0)
+                            {
+                                Console.Write("  " + playingBoard[a, b] + "  ");
+                                Console.Write("|");
+                            }
+                            else
+                            {
+                                Console.Write("     ");
+                                Console.Write("|");
+                            }
                         }
-                        else
+
+                        if (a < maxDepth-1)
                         {
-                            Console.Write("     ");
+                            Console.WriteLine("");
                             Console.Write("|");
                         }
                     }
@@ -83,25 +103,11 @@ namespace ConnectFour
                     Console.WriteLine("");
 
                     ++availableFields[playingColumnNumber];
+                    if (availableFields[playingColumnNumber] == maxDepth) ++maxDepth;
                     computerMove = true;
                 }
             }
 
-
-            for (int a = 0; a < 7; ++a)
-            {
-
-                Console.Write("|");
-
-                for (int b = 0; b < 7; ++b)
-                {
-                    if (a == 0 && b == 0) Console.Write("  a  ");
-                    else Console.Write("     ");
-                    Console.Write("|");
-                }
-
-                Console.WriteLine(" ");
-            }
 
         }
     }
