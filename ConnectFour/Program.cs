@@ -42,19 +42,31 @@ namespace ConnectFour
                 {
                     Console.WriteLine("Computer move");
 
-                    int[] scores = new int[7];
+                    double[] scores = new double[7];
                     for (int a = 0; a < 7; ++a)
                     {
                         scores[a] = (CalculateColumnScore(playingBoard, availableFields, a, computerMove, 0));
                     }
 
-                    int maxScore = scores.Max();
-                    playingColumnNumber = scores.ToList().IndexOf(maxScore);
+                    double maxScore = scores.Max();
+
+                    //if score for all columns is 0 randomise row played
+                    int zeroCoutner = 0;
+                    foreach (double score in scores)
+                    {
+                        if (score == 0) ++zeroCoutner;
+                    }
+                    if (zeroCoutner == 7) playingColumnNumber = rand.Next(0, 6);
+                    else playingColumnNumber = scores.ToList().IndexOf(maxScore);
 
                     while (availableFields[playingColumnNumber] == BOARDDEPTH) {
+                        if (zeroCoutner == 0) playingColumnNumber = rand.Next(0, 6);
+                        else
+                        {
                         scores[playingColumnNumber] = -1000;
                         maxScore = scores.Max();
                         playingColumnNumber = scores.ToList().IndexOf(maxScore);
+                        }
                     }
 
                     //write move on playing board
@@ -213,44 +225,43 @@ namespace ConnectFour
             return false;
         }
 
-        static int CalculateColumnScore (int[,] playingBoard, int[] availableFields, int playedColumn, bool computerTurn, int depth)
+        static double CalculateColumnScore (int[,] playingBoard, int[] availableFields, int playedColumn, bool computerTurn, int depth)
         {
             //column not available
             if (availableFields[playedColumn] == BOARDDEPTH) return 0;
             //max depth reached
             if (depth == 4) return 0;
 
-            List<int> scoreList = new List<int>();
-            int score = 0;
+            List<double> scoreList = new List<double>();
 
             int wantedNumber;
             if (computerTurn) wantedNumber = 9;
             else wantedNumber = 1;
 
-            int[,] clone = Clone(playingBoard);
-            clone[availableFields[playedColumn], playedColumn] = wantedNumber;
-            if (VictoryCalculation(clone, computerTurn) && computerTurn) return 1;
-            if (VictoryCalculation(clone, computerTurn) && !computerTurn) return -1;
+            int[] cloneField = CloneField(availableFields);
+            int[,] cloneBoard = CloneBoard(playingBoard);
+            cloneBoard[cloneField[playedColumn], playedColumn] = wantedNumber;
+            if (VictoryCalculation(cloneBoard, computerTurn) && computerTurn) return 1;
+            if (VictoryCalculation(cloneBoard, computerTurn) && !computerTurn) return -1;
 
-            ++availableFields[playedColumn];
+            ++cloneField[playedColumn];
 
             for (int a = 0; a < 7; ++a)
             {
-                score = CalculateColumnScore(clone, availableFields, a, !computerTurn, ++depth);
-                scoreList.Add(score);
+                scoreList.Add(CalculateColumnScore(cloneBoard, cloneField, a, !computerTurn, depth + 1));
             }
 
             //calculating average score;
-            score = 0;
-            foreach (int columnScore in scoreList) 
+            double endScore = 0;
+            foreach (double columnScore in scoreList) 
             {
-                score += columnScore;
+                endScore += columnScore;
             }
 
-            return (score / scoreList.Count);
+            return endScore / scoreList.Count;
         }
 
-        static int[,] Clone(int[,] playingBoard)
+        static int[,] CloneBoard(int[,] playingBoard)
         {
             int[,] clone = new int[BOARDDEPTH,7];
             for (int a = 0; a < BOARDDEPTH; ++a)
@@ -263,6 +274,15 @@ namespace ConnectFour
             return clone;
         }
 
+        static int[] CloneField(int[] playingField)
+        {
+            int[] clone = new int[7];
+            for (int a = 0; a < 7; ++a)
+            {
+                clone[a] = playingField[a];
+            }
+            return clone;
+        }
 
     }
 }
