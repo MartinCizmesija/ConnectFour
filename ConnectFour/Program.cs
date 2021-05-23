@@ -1,4 +1,6 @@
 ﻿using System;
+using System.Collections.Generic;
+using System.Linq;
 using MPI;
 
 namespace ConnectFour
@@ -27,7 +29,7 @@ namespace ConnectFour
             }
             else computerMove = false;
             
-            //available fields are on row 0
+            //available fields are all on row 0
             for(int a = 0; a < 7; ++a)
             {
                 availableFields[a] = 0;
@@ -39,14 +41,26 @@ namespace ConnectFour
                 if (computerMove)
                 {
                     Console.WriteLine("Computer move");
-                    
-                    playingColumnNumber = rand.Next(0, 6);
-                    while (availableFields[playingColumnNumber] == BOARDDEPTH) {
-                        playingColumnNumber = rand.Next(0, 6);
+
+                    int[] scores = new int[7];
+                    for (int a = 0; a < 7; ++a)
+                    {
+                        scores[a] = (CalculateColumnScore(playingBoard, availableFields, a, computerMove, 0));
                     }
 
+                    int maxScore = scores.Max();
+                    playingColumnNumber = scores.ToList().IndexOf(maxScore);
+
+                    while (availableFields[playingColumnNumber] == BOARDDEPTH) {
+                        scores[playingColumnNumber] = -1000;
+                        maxScore = scores.Max();
+                        playingColumnNumber = scores.ToList().IndexOf(maxScore);
+                    }
+
+                    //write move on playing board
                     playingBoard[availableFields[playingColumnNumber], playingColumnNumber] = 9;
 
+                    //print playing board
                     Console.Write("|");
                     for (int a = 0; a < maxDepth; ++a) 
                     {
@@ -80,6 +94,7 @@ namespace ConnectFour
                         break;
                     }
 
+                    //update available fields and end turn
                     ++availableFields[playingColumnNumber];
                     if (availableFields[playingColumnNumber] == maxDepth && maxDepth < 6) ++maxDepth;
                     computerMove = false;
@@ -100,8 +115,10 @@ namespace ConnectFour
                         playingColumnNumber = int.Parse(Console.ReadLine());
                     }
 
+                    //write move on playing board
                     playingBoard[availableFields[playingColumnNumber], playingColumnNumber] = 1;
 
+                    //print playing board
                     Console.Write("|");
                     for (int a = 0; a < maxDepth; ++a)
                     {
@@ -135,6 +152,7 @@ namespace ConnectFour
                         break;
                     }
 
+                    //update available fields and end turn
                     ++availableFields[playingColumnNumber];
                     if (availableFields[playingColumnNumber] == maxDepth && maxDepth < 6) ++maxDepth;
                     computerMove = true;
@@ -194,6 +212,57 @@ namespace ConnectFour
 
             return false;
         }
+
+        static int CalculateColumnScore (int[,] playingBoard, int[] availableFields, int playedColumn, bool computerTurn, int depth)
+        {
+            //column not available
+            if (availableFields[playedColumn] == BOARDDEPTH) return 0;
+            //max depth reached
+            if (depth == 4) return 0;
+
+            List<int> scoreList = new List<int>();
+            int score = 0;
+
+            int wantedNumber;
+            if (computerTurn) wantedNumber = 9;
+            else wantedNumber = 1;
+
+            int[,] clone = Clone(playingBoard);
+            clone[availableFields[playedColumn], playedColumn] = wantedNumber;
+            if (VictoryCalculation(clone, computerTurn) && computerTurn) return 1;
+            if (VictoryCalculation(clone, computerTurn) && !computerTurn) return -1;
+
+            ++availableFields[playedColumn];
+
+            for (int a = 0; a < 7; ++a)
+            {
+                score = CalculateColumnScore(clone, availableFields, a, !computerTurn, ++depth);
+                scoreList.Add(score);
+            }
+
+            //calculating average score;
+            score = 0;
+            foreach (int columnScore in scoreList) 
+            {
+                score += columnScore;
+            }
+
+            return (score / scoreList.Count);
+        }
+
+        static int[,] Clone(int[,] playingBoard)
+        {
+            int[,] clone = new int[BOARDDEPTH,7];
+            for (int a = 0; a < BOARDDEPTH; ++a)
+            {
+                for (int b = 0; b < 7; ++b)
+                {
+                    clone[a, b] = playingBoard[a, b];
+                }
+            }
+            return clone;
+        }
+
 
     }
 }
