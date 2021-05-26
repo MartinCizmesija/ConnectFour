@@ -7,7 +7,8 @@ namespace ConnectFour
 {
     class Program
     {
-        static int BOARDDEPTH = 6;
+        static int BOARDDEPTH = 11;
+        static int SEARCHDEPTH = 8;
         static void Main(string[] args)
         {
             Console.WriteLine("Welcome to connect four");
@@ -230,7 +231,7 @@ namespace ConnectFour
             //column not available
             if (availableFields[playedColumn] == BOARDDEPTH) return 0;
             //max depth reached
-            if (depth == 4) return 0;
+            if (depth == SEARCHDEPTH) return 0;
 
             List<double> scoreList = new List<double>();
 
