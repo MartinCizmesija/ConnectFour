@@ -7,173 +7,222 @@ namespace ConnectFour
 {
     class Program
     {
-        static int BOARDDEPTH = 11;
-        static int SEARCHDEPTH = 8;
+        readonly static int BOARDDEPTH = 11;
+        readonly static int SEARCHDEPTH = 8;
+        readonly static int GRANULATIONLEVEL = 3;
+        readonly static int NUMBEROFTASKS = (int) Math.Pow(7, GRANULATIONLEVEL);
+
+        static List<State> tasks = new List<State>();
+
         static void Main(string[] args)
         {
-            Console.WriteLine("Welcome to connect four");
-            Console.WriteLine("Computer moves are numbered with 9, your moves are numbered with 1");
-            Console.Write("Enter 1 if you want to play first, or 9 if you want computer to play first: ");
-            string input = Console.ReadLine();
-
-            int[,] playingBoard = new int[BOARDDEPTH, 7];
-            int[] availableFields = new int[7];
-            var rand = new Random();
-            int playingColumnNumber;
-            int maxDepth = 1;
-            bool computerMove;
-
-            //read who goes first
-            if (input.Equals("9"))
+            using (new MPI.Environment(ref args))
             {
-                computerMove = true;
-            }
-            else computerMove = false;
-            
-            //available fields are all on row 0
-            for(int a = 0; a < 7; ++a)
-            {
-                availableFields[a] = 0;
-            }
+                Intracommunicator comm = Communicator.world;
+                int procesId = comm.Rank;
+                int numberOfWorkers = comm.Size -1;
 
-            while (true)
-            {
-                //computer turn
-                if (computerMove)
+                //calucalting number of jobs for workers
+                if (numberOfWorkers == 0)
                 {
-                    Console.WriteLine("Computer move");
+                    System.Environment.Exit(0);
+                }
 
-                    double[] scores = new double[7];
+                double jobsPerWorker = NUMBEROFTASKS / numberOfWorkers;
+                double unallocatedJobs = NUMBEROFTASKS % numberOfWorkers;
+
+                double[] workerJobs = new double[comm.Size - 1];
+                for (int a = 0; a < comm.Size-1; ++a)
+                {
+                    workerJobs[a] = jobsPerWorker;
+                    if (a < unallocatedJobs) ++workerJobs[a];
+                }
+
+                //master
+                if (procesId == 0)
+                {
+                    Console.WriteLine("Welcome to connect four");
+                    Console.WriteLine("Computer moves are numbered with 9, your moves are numbered with 1");
+                    Console.Write("Enter 1 if you want to play first, or 9 if you want computer to play first: ");
+                    string input = Console.ReadLine();
+
+                    int[,] playingBoard = new int[BOARDDEPTH, 7];
+                    int[] availableFields = new int[7];
+                    var rand = new Random();
+                    int playingColumnNumber;
+                    int maxDepth = 1;
+                    bool computerMove;
+
+                    //read who goes first
+                    if (input.Equals("9"))
+                    {
+                        computerMove = true;
+                    }
+                    else computerMove = false;
+
+                    //available fields are all on row 0
                     for (int a = 0; a < 7; ++a)
                     {
-                        scores[a] = (CalculateColumnScore(playingBoard, availableFields, a, computerMove, 0));
+                        availableFields[a] = 0;
                     }
 
-                    double maxScore = scores.Max();
-
-                    //if score for all columns is 0 randomise row played
-                    int zeroCoutner = 0;
-                    foreach (double score in scores)
+                    while (true)
                     {
-                        if (score == 0) ++zeroCoutner;
-                    }
-                    if (zeroCoutner == 7) playingColumnNumber = rand.Next(0, 6);
-                    else playingColumnNumber = scores.ToList().IndexOf(maxScore);
+                        //computer turn
+                        if (computerMove)
+                        {
+                            Console.WriteLine("Computer move");
 
-                    while (availableFields[playingColumnNumber] == BOARDDEPTH) {
-                        if (zeroCoutner == 0) playingColumnNumber = rand.Next(0, 6);
+                            //calculate row scores
+                            double[] scores = new double[7];
+                            State mainState = new State(playingBoard, availableFields, computerMove, 0, null);
+
+                            for (int a = 0; a < 7; ++a)
+                            {
+                                CreateTaskPool(playingBoard, availableFields, a, computerMove, 1, mainState);
+                            }
+
+                            double maxScore = scores.Max();
+
+                            //if score for all columns is 0 randomise row played
+                            int zeroCoutner = 0;
+                            foreach (double score in scores)
+                            {
+                                if (score == 0) ++zeroCoutner;
+                            }
+                            if (zeroCoutner == 7) playingColumnNumber = rand.Next(0, 6);
+                            else playingColumnNumber = scores.ToList().IndexOf(maxScore);
+
+                            while (availableFields[playingColumnNumber] == BOARDDEPTH)
+                            {
+                                if (zeroCoutner == 0) playingColumnNumber = rand.Next(0, 6);
+                                else
+                                {
+                                    scores[playingColumnNumber] = -1000;
+                                    maxScore = scores.Max();
+                                    playingColumnNumber = scores.ToList().IndexOf(maxScore);
+                                }
+                            }
+
+                            //write move on playing board
+                            playingBoard[availableFields[playingColumnNumber], playingColumnNumber] = 9;
+
+                            //print playing board
+                            Console.Write("|");
+                            for (int a = 0; a < maxDepth; ++a)
+                            {
+                                for (int b = 0; b < 7; ++b)
+                                {
+                                    if (playingBoard[a, b] != 0)
+                                    {
+                                        Console.Write("  " + playingBoard[a, b] + "  ");
+                                        Console.Write("|");
+                                    }
+                                    else
+                                    {
+                                        Console.Write("     ");
+                                        Console.Write("|");
+                                    }
+                                }
+
+                                if (a < maxDepth - 1)
+                                {
+                                    Console.WriteLine("");
+                                    Console.Write("|");
+                                }
+                            }
+
+                            Console.WriteLine("");
+                            if (maxDepth == BOARDDEPTH) Console.WriteLine("|-----------------------------------------|");
+
+                            if (VictoryCalculation(playingBoard, computerMove))
+                            {
+                                Console.WriteLine("Computer won!");
+                                break;
+                            }
+
+                            //update available fields and end turn
+                            ++availableFields[playingColumnNumber];
+                            if (availableFields[playingColumnNumber] == maxDepth && maxDepth < 6) ++maxDepth;
+                            computerMove = false;
+                        }
                         else
+                        //player turn
                         {
-                        scores[playingColumnNumber] = -1000;
-                        maxScore = scores.Max();
-                        playingColumnNumber = scores.ToList().IndexOf(maxScore);
-                        }
-                    }
-
-                    //write move on playing board
-                    playingBoard[availableFields[playingColumnNumber], playingColumnNumber] = 9;
-
-                    //print playing board
-                    Console.Write("|");
-                    for (int a = 0; a < maxDepth; ++a) 
-                    {
-                        for (int b = 0; b < 7; ++b)
-                        {
-                            if (playingBoard[a, b] != 0)
+                            Console.Write("Enter column number you want to play (0-6): ");
+                            playingColumnNumber = int.Parse(Console.ReadLine());
+                            while (playingColumnNumber > 6)
                             {
-                                Console.Write("  " + playingBoard[a, b] + "  ");
-                                Console.Write("|");
+                                Console.Write("Please enter valid column number (0-6): ");
+                                playingColumnNumber = int.Parse(Console.ReadLine());
                             }
-                            else
-                            {
-                                Console.Write("     ");
-                                Console.Write("|");
-                            }
-                        }
 
-                        if (a < maxDepth - 1)
-                        {
-                            Console.WriteLine("");
+                            while (availableFields[playingColumnNumber] == BOARDDEPTH)
+                            {
+                                Console.Write("Column is full. Enter some other column number: ");
+                                playingColumnNumber = int.Parse(Console.ReadLine());
+                            }
+
+                            //write move on playing board
+                            playingBoard[availableFields[playingColumnNumber], playingColumnNumber] = 1;
+
+                            //print playing board
                             Console.Write("|");
+                            for (int a = 0; a < maxDepth; ++a)
+                            {
+                                for (int b = 0; b < 7; ++b)
+                                {
+                                    if (playingBoard[a, b] != 0)
+                                    {
+                                        Console.Write("  " + playingBoard[a, b] + "  ");
+                                        Console.Write("|");
+                                    }
+                                    else
+                                    {
+                                        Console.Write("     ");
+                                        Console.Write("|");
+                                    }
+                                }
+
+                                if (a < maxDepth - 1)
+                                {
+                                    Console.WriteLine("");
+                                    Console.Write("|");
+                                }
+                            }
+
+                            Console.WriteLine("");
+                            if (maxDepth == BOARDDEPTH) Console.WriteLine("|-----------------------------------------|");
+
+                            if (VictoryCalculation(playingBoard, computerMove))
+                            {
+                                Console.WriteLine("You won!");
+                                break;
+                            }
+
+                            //update available fields and end turn
+                            ++availableFields[playingColumnNumber];
+                            if (availableFields[playingColumnNumber] == maxDepth && maxDepth < 6) ++maxDepth;
+                            computerMove = true;
                         }
                     }
 
-                    Console.WriteLine("");
-                    if (maxDepth == BOARDDEPTH) Console.WriteLine("|-----------------------------------------|");
+                    Console.WriteLine("Enter anything to close");
+                    Console.ReadLine();
+                }
 
-                    if (VictoryCalculation(playingBoard, computerMove))
-                    {
-                        Console.WriteLine("Computer won!");
-                        break;
-                    }
-
-                    //update available fields and end turn
-                    ++availableFields[playingColumnNumber];
-                    if (availableFields[playingColumnNumber] == maxDepth && maxDepth < 6) ++maxDepth;
-                    computerMove = false;
-                } else
-                //player turn
+                //worker
+                else
                 {
-                    Console.Write("Enter column number you want to play (0-6): ");
-                    playingColumnNumber = int.Parse(Console.ReadLine());
-                    while (playingColumnNumber > 6)
+                    int[] data = new int[2];
+                    while(true)
                     {
-                        Console.Write("Please enter valid column number (0-6): ");
-                        playingColumnNumber = int.Parse(Console.ReadLine());
+                        comm.Receive(0, 0, out data);
+
+                        if (data[1] < 0) break;
                     }
-
-                    while (availableFields[playingColumnNumber] == BOARDDEPTH)
-                    {
-                        Console.Write("Column is full. Enter some other column number: ");
-                        playingColumnNumber = int.Parse(Console.ReadLine());
-                    }
-
-                    //write move on playing board
-                    playingBoard[availableFields[playingColumnNumber], playingColumnNumber] = 1;
-
-                    //print playing board
-                    Console.Write("|");
-                    for (int a = 0; a < maxDepth; ++a)
-                    {
-                        for (int b = 0; b < 7; ++b)
-                        {
-                            if (playingBoard[a, b] != 0)
-                            {
-                                Console.Write("  " + playingBoard[a, b] + "  ");
-                                Console.Write("|");
-                            }
-                            else
-                            {
-                                Console.Write("     ");
-                                Console.Write("|");
-                            }
-                        }
-
-                        if (a < maxDepth-1)
-                        {
-                            Console.WriteLine("");
-                            Console.Write("|");
-                        }
-                    }
-
-                    Console.WriteLine("");
-                    if (maxDepth == BOARDDEPTH) Console.WriteLine("|-----------------------------------------|");
-
-                    if (VictoryCalculation(playingBoard, computerMove))
-                    {
-                        Console.WriteLine("You won!");
-                        break;
-                    }
-
-                    //update available fields and end turn
-                    ++availableFields[playingColumnNumber];
-                    if (availableFields[playingColumnNumber] == maxDepth && maxDepth < 6) ++maxDepth;
-                    computerMove = true;
                 }
             }
-
-            Console.WriteLine("Enter anything to close");
-            Console.ReadLine();
         }
 
         static bool VictoryCalculation(int[,] playingBoard, bool computerTurn)
@@ -226,8 +275,13 @@ namespace ConnectFour
             return false;
         }
 
-        static double CalculateColumnScore (int[,] playingBoard, int[] availableFields, int playedColumn, bool computerTurn, int depth)
+        static double CalculateColumnScore (int[,] playingBoard, int[] availableFields, int playedColumn, bool computerTurn, int depth, Communicator comm)
         {
+            if(depth == GRANULATIONLEVEL)
+            {
+                //comm.Receive<>
+            }
+
             //column not available
             if (availableFields[playedColumn] == BOARDDEPTH) return 0;
             //max depth reached
@@ -249,7 +303,7 @@ namespace ConnectFour
 
             for (int a = 0; a < 7; ++a)
             {
-                scoreList.Add(CalculateColumnScore(cloneBoard, cloneField, a, !computerTurn, depth + 1));
+                scoreList.Add(CalculateColumnScore(cloneBoard, cloneField, a, !computerTurn, depth + 1, comm));
             }
 
             //calculating average score;
@@ -261,6 +315,41 @@ namespace ConnectFour
 
             return endScore / scoreList.Count;
         }
+
+        static void CreateTaskPool(int[,] playingBoard, int[] availableFields, int playedColumn, bool computerTurn, int depth, State state)
+        {
+            //column not available
+            if (availableFields[playedColumn] == BOARDDEPTH) return;
+            //max depth reached
+            if (depth == SEARCHDEPTH) return;
+
+            int wantedNumber;
+            if (computerTurn) wantedNumber = 9;
+            else wantedNumber = 1;
+
+            int[] cloneField = CloneField(availableFields);
+            int[,] cloneBoard = CloneBoard(playingBoard);
+            cloneBoard[cloneField[playedColumn], playedColumn] = wantedNumber;
+
+            ++cloneField[playedColumn];
+
+            State nextState = new State(cloneBoard, cloneField, !computerTurn, depth, state);
+
+            if (depth == GRANULATIONLEVEL)
+            {
+                tasks.Add(nextState);
+            } else
+            {
+                for (int a = 0; a < 7; ++a)
+                {
+                    CreateTaskPool(cloneBoard, cloneField, a, !computerTurn, depth + 1, nextState);
+                }
+            }
+        }
+
+
+
+
 
         static int[,] CloneBoard(int[,] playingBoard)
         {
@@ -286,4 +375,25 @@ namespace ConnectFour
         }
 
     }
+
+    class State
+    {
+        int[,] board;
+        int[] availableFields;
+        bool computerTurn;
+        int depth;
+        State rootTask;
+
+        public State(int[,] board, int[] availableFields, bool computerTurn, int depth, State rootTask)
+        {
+            this.board = board;
+            this.availableFields = availableFields;
+            this.computerTurn = computerTurn;
+            this.depth = depth;
+            this.rootTask = rootTask;
+        }
+
+
+    }
+
 }
