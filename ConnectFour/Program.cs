@@ -9,10 +9,11 @@ namespace ConnectFour
     {
         readonly static int BOARDDEPTH = 11;
         readonly static int SEARCHDEPTH = 8;
-        readonly static int GRANULATIONLEVEL = 3;
-        readonly static int NUMBEROFTASKS = (int) Math.Pow(7, GRANULATIONLEVEL);
+        readonly static int GRANULATIONLEVEL = 2;
+        //readonly static int NUMBEROFTASKS = (int) Math.Pow(7, GRANULATIONLEVEL + 1);
 
-        static List<State> tasks = new List<State>();
+        static List<State> mappedStates = new List<State>();
+        static int idCounter = 0;
 
         static void Main(string[] args)
         {
@@ -22,21 +23,7 @@ namespace ConnectFour
                 int procesId = comm.Rank;
                 int numberOfWorkers = comm.Size -1;
 
-                //calucalting number of jobs for workers
-                if (numberOfWorkers == 0)
-                {
-                    System.Environment.Exit(0);
-                }
-
-                double jobsPerWorker = NUMBEROFTASKS / numberOfWorkers;
-                double unallocatedJobs = NUMBEROFTASKS % numberOfWorkers;
-
-                double[] workerJobs = new double[comm.Size - 1];
-                for (int a = 0; a < comm.Size-1; ++a)
-                {
-                    workerJobs[a] = jobsPerWorker;
-                    if (a < unallocatedJobs) ++workerJobs[a];
-                }
+                if (numberOfWorkers == 0) System.Environment.Exit(0);
 
                 //master
                 if (procesId == 0)
@@ -53,11 +40,10 @@ namespace ConnectFour
                     int maxDepth = 1;
                     bool computerMove;
 
+                    Dictionary<int, double> gatheredValues = new Dictionary<int, double>();
+
                     //read who goes first
-                    if (input.Equals("9"))
-                    {
-                        computerMove = true;
-                    }
+                    if (input.Equals("9")) computerMove = true;
                     else computerMove = false;
 
                     //available fields are all on row 0
@@ -73,13 +59,46 @@ namespace ConnectFour
                         {
                             Console.WriteLine("Computer move");
 
-                            //calculate row scores
-                            double[] scores = new double[7];
-                            State mainState = new State(playingBoard, availableFields, computerMove, 0, null);
-
+                            //create poll of states
+                            idCounter = 0;
+                            mappedStates.Clear();
+                            gatheredValues.Clear();
                             for (int a = 0; a < 7; ++a)
                             {
-                                CreateTaskPool(playingBoard, availableFields, a, computerMove, 1, mainState);
+                                CreateTaskPool(playingBoard, availableFields, a, computerMove, 0, null);
+                            }
+
+                            int jobsDone = 0;
+                            while (jobsDone < mappedStates.Count)
+                            {
+                                if (mappedStates[jobsDone].depth != GRANULATIONLEVEL) 
+                                {
+                                    ++jobsDone;
+                                    continue;
+                                }
+                                comm.Receive(Communicator.anySource, 1, out int WorkerRank);
+                                comm.Send(mappedStates[jobsDone], WorkerRank, 0);
+                                ++jobsDone;
+                            }
+                            for (int a = 0; a < numberOfWorkers; ++a)
+                            {
+                                comm.Receive(Communicator.anySource, 1, out int WorkerRank);
+                                comm.Send(new State(-1), WorkerRank, 0);
+                                comm.Receive(WorkerRank, 2, out Dictionary<int, double> processedValues);
+                                foreach (int key in processedValues.Keys)
+                                {
+                                    mappedStates[key].stateScore = processedValues[key];
+                                    //Console.WriteLine(processedValues[key]);
+                                }
+                            }
+
+                            //calculate row scores
+                            CalculateColumnTaskScore(GRANULATIONLEVEL);
+                            double[] scores = new double[7];
+
+                            foreach (State s in mappedStates)
+                            {
+                                if (s.depth == 0) scores[s.column] = s.stateScore;
                             }
 
                             double maxScore = scores.Max();
@@ -138,6 +157,11 @@ namespace ConnectFour
                             if (VictoryCalculation(playingBoard, computerMove))
                             {
                                 Console.WriteLine("Computer won!");
+                                for (int a = 0; a < numberOfWorkers; ++a)
+                                {
+                                    comm.Receive(Communicator.anySource, 1, out int WorkerRank);
+                                    comm.Send(new State(-100), WorkerRank, 0);
+                                }
                                 break;
                             }
 
@@ -197,6 +221,11 @@ namespace ConnectFour
                             if (VictoryCalculation(playingBoard, computerMove))
                             {
                                 Console.WriteLine("You won!");
+                                for (int a = 0; a < numberOfWorkers; ++a)
+                                {
+                                    comm.Receive(Communicator.anySource, 1, out int WorkerRank);
+                                    comm.Send(new State(-100), WorkerRank, 0);
+                                }
                                 break;
                             }
 
@@ -214,12 +243,34 @@ namespace ConnectFour
                 //worker
                 else
                 {
-                    int[] data = new int[2];
-                    while(true)
+                    Dictionary<int, double> scoreMap = new Dictionary<int, double>();
+                    while (true)
                     {
-                        comm.Receive(0, 0, out data);
+                        comm.Send(comm.Rank, 0, 1);
+                        comm.Receive(0, 0, out State workingState);
+                        if (workingState.stateId == -100) break;
+                        if (workingState.stateId == -1) 
+                        {
+                            comm.Send(scoreMap, 0, 2);
+                            scoreMap.Clear();
+                            continue;
+                        }
+                        if (scoreMap.ContainsKey(workingState.stateId)) continue;
 
-                        if (data[1] < 0) break;
+                        List<double> scoreList = new List<double>();
+                        for (int a = 0; a < 7; ++a)
+                        {
+                            scoreList.Add(CalculateColumnScore(workingState.board, workingState.availableFields, a, workingState.computerTurn, workingState.depth + 1));
+                        }
+
+                        double endScore = 0;
+                        foreach (double columnScore in scoreList)
+                        {
+                            endScore += columnScore;
+                        }
+
+                        workingState.stateScore = endScore / scoreList.Count;
+                        scoreMap.Add(workingState.stateId, workingState.stateScore);
                     }
                 }
             }
@@ -275,13 +326,8 @@ namespace ConnectFour
             return false;
         }
 
-        static double CalculateColumnScore (int[,] playingBoard, int[] availableFields, int playedColumn, bool computerTurn, int depth, Communicator comm)
+        static double CalculateColumnScore (int[,] playingBoard, int[] availableFields, int playedColumn, bool computerTurn, int depth)
         {
-            if(depth == GRANULATIONLEVEL)
-            {
-                //comm.Receive<>
-            }
-
             //column not available
             if (availableFields[playedColumn] == BOARDDEPTH) return 0;
             //max depth reached
@@ -303,7 +349,7 @@ namespace ConnectFour
 
             for (int a = 0; a < 7; ++a)
             {
-                scoreList.Add(CalculateColumnScore(cloneBoard, cloneField, a, !computerTurn, depth + 1, comm));
+                scoreList.Add(CalculateColumnScore(cloneBoard, cloneField, a, !computerTurn, depth + 1));
             }
 
             //calculating average score;
@@ -333,22 +379,51 @@ namespace ConnectFour
 
             ++cloneField[playedColumn];
 
-            State nextState = new State(cloneBoard, cloneField, !computerTurn, depth, state);
-
-            if (depth == GRANULATIONLEVEL)
+            State currentState = new State(idCounter, cloneBoard, cloneField, !computerTurn, playedColumn, depth, state);
+            if (currentState.rootState != null)
             {
-                tasks.Add(nextState);
-            } else
+                currentState.rootState.children.Add(currentState);
+            }
+
+            ++idCounter;
+            mappedStates.Add(currentState);
+
+            if (depth < GRANULATIONLEVEL)
             {
                 for (int a = 0; a < 7; ++a)
                 {
-                    CreateTaskPool(cloneBoard, cloneField, a, !computerTurn, depth + 1, nextState);
+                    CreateTaskPool(cloneBoard, cloneField, a, !computerTurn, depth + 1, currentState);
                 }
             }
         }
+        
+        static void CalculateColumnTaskScore(int depth)
+        {
+            //max depth reached
+            foreach (State s in mappedStates)
+            {
+                if (s.depth == depth - 1)
+                {
+                    //calucating average
+                    List<double> scoreList = new List<double>();
+                    foreach (State child in s.children)
+                    {
+                        scoreList.Add(child.stateScore);
+                    }
+                    double endScore = 0;
+                    foreach (double columnScore in scoreList)
+                    {
+                        endScore += columnScore;
+                    }
+                    s.stateScore = endScore / scoreList.Count;
+                }
+            }
 
-
-
+            if (depth - 1 > 0)
+            {
+                CalculateColumnTaskScore(depth - 1);
+            }
+        }
 
 
         static int[,] CloneBoard(int[,] playingBoard)
@@ -376,21 +451,33 @@ namespace ConnectFour
 
     }
 
-    class State
+    [Serializable]
+    public class State
     {
-        int[,] board;
-        int[] availableFields;
-        bool computerTurn;
-        int depth;
-        State rootTask;
+        public int stateId;
+        public int[,] board;
+        public int[] availableFields;
+        public bool computerTurn;
+        public int depth;
+        public int column;
+        public double stateScore;
+        public List<State> children = new List<State>();
+        public State rootState;
 
-        public State(int[,] board, int[] availableFields, bool computerTurn, int depth, State rootTask)
+        public State(int id, int[,] board, int[] availableFields, bool computerTurn, int column, int depth, State rootTask)
         {
+            this.stateId = id;
             this.board = board;
             this.availableFields = availableFields;
             this.computerTurn = computerTurn;
             this.depth = depth;
-            this.rootTask = rootTask;
+            this.rootState = rootTask;
+            this.column = column;
+        }
+
+        public State(int id)
+        {
+            stateId = id;
         }
 
 
