@@ -9,10 +9,9 @@ namespace ConnectFour
     {
         readonly static int BOARDDEPTH = 11;
         readonly static int SEARCHDEPTH = 8;
-        readonly static int GRANULATIONLEVEL = 2;
-        //readonly static int NUMBEROFTASKS = (int) Math.Pow(7, GRANULATIONLEVEL + 1);
+        readonly static int GRANULATIONLEVEL = 1;
 
-        static List<State> mappedStates = new List<State>();
+        readonly static List<State> mappedStates = new List<State>();
         static int idCounter = 0;
 
         static void Main(string[] args)
@@ -68,8 +67,10 @@ namespace ConnectFour
                                 CreateTaskPool(playingBoard, availableFields, a, computerMove, 0, null);
                             }
 
+                            //send tasks to processors until done
                             int jobsDone = 0;
-                            while (jobsDone < mappedStates.Count)
+                            int count = mappedStates.Count;
+                            while (jobsDone < count)
                             {
                                 if (mappedStates[jobsDone].depth != GRANULATIONLEVEL) 
                                 {
@@ -78,18 +79,27 @@ namespace ConnectFour
                                 }
                                 comm.Receive(Communicator.anySource, 1, out int WorkerRank);
                                 comm.Send(mappedStates[jobsDone], WorkerRank, 0);
+                                //Console.WriteLine("sent taks" + jobsDone + " to " + WorkerRank);
                                 ++jobsDone;
                             }
+
+                            //gathering data from each process
                             for (int a = 0; a < numberOfWorkers; ++a)
                             {
                                 comm.Receive(Communicator.anySource, 1, out int WorkerRank);
                                 comm.Send(new State(-1), WorkerRank, 0);
                                 comm.Receive(WorkerRank, 2, out Dictionary<int, double> processedValues);
+                                Console.WriteLine("Worker rank: " + WorkerRank);
                                 foreach (int key in processedValues.Keys)
                                 {
                                     mappedStates[key].stateScore = processedValues[key];
-                                    //Console.WriteLine(processedValues[key]);
                                 }
+                            }
+
+                            //sending confirm that i got all the data from processors
+                            for (int a = 0; a < numberOfWorkers; ++a)
+                            {
+                                comm.Send(a, a + 1, 5);
                             }
 
                             //calculate row scores
@@ -98,7 +108,11 @@ namespace ConnectFour
 
                             foreach (State s in mappedStates)
                             {
-                                if (s.depth == 0) scores[s.column] = s.stateScore;
+                                if (s.depth == 0) {
+                                    scores[s.column] = s.stateScore;
+                                    Console.WriteLine("column: " + s.stateScore);
+                                }
+                                //scores[s.column] = s.stateScore;
                             }
 
                             double maxScore = scores.Max();
@@ -154,6 +168,7 @@ namespace ConnectFour
                             Console.WriteLine("");
                             if (maxDepth == BOARDDEPTH) Console.WriteLine("|-----------------------------------------|");
 
+                            //exit on win
                             if (VictoryCalculation(playingBoard, computerMove))
                             {
                                 Console.WriteLine("Computer won!");
@@ -218,6 +233,7 @@ namespace ConnectFour
                             Console.WriteLine("");
                             if (maxDepth == BOARDDEPTH) Console.WriteLine("|-----------------------------------------|");
 
+                            //exit on win
                             if (VictoryCalculation(playingBoard, computerMove))
                             {
                                 Console.WriteLine("You won!");
@@ -253,6 +269,7 @@ namespace ConnectFour
                         {
                             comm.Send(scoreMap, 0, 2);
                             scoreMap.Clear();
+                            comm.Receive(0, 5, out int val);
                             continue;
                         }
                         if (scoreMap.ContainsKey(workingState.stateId)) continue;
@@ -274,213 +291,210 @@ namespace ConnectFour
                     }
                 }
             }
-        }
 
-        static bool VictoryCalculation(int[,] playingBoard, bool computerTurn)
-        {
-            int wantedNumber;
-            if (computerTurn) wantedNumber = 9;
-            else wantedNumber = 1;
-
-            int horizontalVictoryCount = 0;
-
-            for (int a = 0; a < BOARDDEPTH; ++a)
+            bool VictoryCalculation(int[,] playingBoard, bool computerTurn)
             {
-                for (int b = 0; b < 7; ++b)
+                int wantedNumber;
+                if (computerTurn) wantedNumber = 9;
+                else wantedNumber = 1;
+
+                int horizontalVictoryCount = 0;
+
+                for (int a = 0; a < BOARDDEPTH; ++a)
                 {
-                    //horizontal check
-                    if (playingBoard[a, b] == wantedNumber) ++horizontalVictoryCount;
-                    else horizontalVictoryCount = 0;
-                    if (horizontalVictoryCount == 4) return true;
-
-                    if (a <= BOARDDEPTH - 4)
+                    for (int b = 0; b < 7; ++b)
                     {
-                        //vertical check
-                        if (playingBoard[a, b] == wantedNumber
-                            && playingBoard[a + 1, b] == wantedNumber
-                            && playingBoard[a + 2, b] == wantedNumber
-                            && playingBoard[a + 3, b] == wantedNumber) return true;
+                        //horizontal check
+                        if (playingBoard[a, b] == wantedNumber) ++horizontalVictoryCount;
+                        else horizontalVictoryCount = 0;
+                        if (horizontalVictoryCount == 4) return true;
 
-                        //left diagonal check
-                        if (b <= 3)
+                        if (a <= BOARDDEPTH - 4)
                         {
+                            //vertical check
                             if (playingBoard[a, b] == wantedNumber
-                                && playingBoard[a + 1, b + 1] == wantedNumber
-                                && playingBoard[a + 2, b + 2] == wantedNumber
-                                && playingBoard[a + 3, b + 3] == wantedNumber) return true;
-                        }
+                                && playingBoard[a + 1, b] == wantedNumber
+                                && playingBoard[a + 2, b] == wantedNumber
+                                && playingBoard[a + 3, b] == wantedNumber) return true;
 
-                        //right diagonal check
-                        if (b >= 3)
-                        {
-                            if (playingBoard[a, b] == wantedNumber
-                                && playingBoard[a + 1, b - 1] == wantedNumber
-                                && playingBoard[a + 2, b - 2] == wantedNumber
-                                && playingBoard[a + 3, b - 3] == wantedNumber) return true;
+                            //left diagonal check
+                            if (b <= 3)
+                            {
+                                if (playingBoard[a, b] == wantedNumber
+                                    && playingBoard[a + 1, b + 1] == wantedNumber
+                                    && playingBoard[a + 2, b + 2] == wantedNumber
+                                    && playingBoard[a + 3, b + 3] == wantedNumber) return true;
+                            }
+
+                            //right diagonal check
+                            if (b >= 3)
+                            {
+                                if (playingBoard[a, b] == wantedNumber
+                                    && playingBoard[a + 1, b - 1] == wantedNumber
+                                    && playingBoard[a + 2, b - 2] == wantedNumber
+                                    && playingBoard[a + 3, b - 3] == wantedNumber) return true;
+                            }
                         }
                     }
+                    horizontalVictoryCount = 0;
                 }
-                horizontalVictoryCount = 0;
+
+                return false;
             }
 
-            return false;
-        }
-
-        static double CalculateColumnScore (int[,] playingBoard, int[] availableFields, int playedColumn, bool computerTurn, int depth)
-        {
-            //column not available
-            if (availableFields[playedColumn] == BOARDDEPTH) return 0;
-            //max depth reached
-            if (depth == SEARCHDEPTH) return 0;
-
-            List<double> scoreList = new List<double>();
-
-            int wantedNumber;
-            if (computerTurn) wantedNumber = 9;
-            else wantedNumber = 1;
-
-            int[] cloneField = CloneField(availableFields);
-            int[,] cloneBoard = CloneBoard(playingBoard);
-            cloneBoard[cloneField[playedColumn], playedColumn] = wantedNumber;
-            if (VictoryCalculation(cloneBoard, computerTurn) && computerTurn) return 1;
-            if (VictoryCalculation(cloneBoard, computerTurn) && !computerTurn) return -1;
-
-            ++cloneField[playedColumn];
-
-            for (int a = 0; a < 7; ++a)
+            double CalculateColumnScore(int[,] playingBoard, int[] availableFields, int playedColumn, bool computerTurn, int depth)
             {
-                scoreList.Add(CalculateColumnScore(cloneBoard, cloneField, a, !computerTurn, depth + 1));
-            }
+                //column not available
+                if (availableFields[playedColumn] == BOARDDEPTH) return 0;
+                //max depth reached
+                if (depth == SEARCHDEPTH) return 0;
 
-            //calculating average score;
-            double endScore = 0;
-            foreach (double columnScore in scoreList) 
-            {
-                endScore += columnScore;
-            }
+                List<double> scoreList = new List<double>();
 
-            return endScore / scoreList.Count;
-        }
+                int wantedNumber;
+                if (computerTurn) wantedNumber = 9;
+                else wantedNumber = 1;
 
-        static void CreateTaskPool(int[,] playingBoard, int[] availableFields, int playedColumn, bool computerTurn, int depth, State state)
-        {
-            //column not available
-            if (availableFields[playedColumn] == BOARDDEPTH) return;
-            //max depth reached
-            if (depth == SEARCHDEPTH) return;
+                int[] cloneField = CloneField(availableFields);
+                int[,] cloneBoard = CloneBoard(playingBoard);
+                cloneBoard[cloneField[playedColumn], playedColumn] = wantedNumber;
+                if (VictoryCalculation(cloneBoard, computerTurn) && computerTurn) return 1;
+                if (VictoryCalculation(cloneBoard, computerTurn) && !computerTurn) return -1;
 
-            int wantedNumber;
-            if (computerTurn) wantedNumber = 9;
-            else wantedNumber = 1;
+                ++cloneField[playedColumn];
 
-            int[] cloneField = CloneField(availableFields);
-            int[,] cloneBoard = CloneBoard(playingBoard);
-            cloneBoard[cloneField[playedColumn], playedColumn] = wantedNumber;
-
-            ++cloneField[playedColumn];
-
-            State currentState = new State(idCounter, cloneBoard, cloneField, !computerTurn, playedColumn, depth, state);
-            if (currentState.rootState != null)
-            {
-                currentState.rootState.children.Add(currentState);
-            }
-
-            ++idCounter;
-            mappedStates.Add(currentState);
-
-            if (depth < GRANULATIONLEVEL)
-            {
                 for (int a = 0; a < 7; ++a)
                 {
-                    CreateTaskPool(cloneBoard, cloneField, a, !computerTurn, depth + 1, currentState);
+                    scoreList.Add(CalculateColumnScore(cloneBoard, cloneField, a, !computerTurn, depth + 1));
                 }
-            }
-        }
-        
-        static void CalculateColumnTaskScore(int depth)
-        {
-            //max depth reached
-            foreach (State s in mappedStates)
-            {
-                if (s.depth == depth - 1)
+
+                //calculating average score;
+                double endScore = 0;
+                foreach (double columnScore in scoreList)
                 {
-                    //calucating average
-                    List<double> scoreList = new List<double>();
-                    foreach (State child in s.children)
-                    {
-                        scoreList.Add(child.stateScore);
-                    }
-                    double endScore = 0;
-                    foreach (double columnScore in scoreList)
-                    {
-                        endScore += columnScore;
-                    }
-                    s.stateScore = endScore / scoreList.Count;
+                    endScore += columnScore;
                 }
+
+                return endScore / scoreList.Count;
             }
 
-            if (depth - 1 > 0)
+            void CreateTaskPool(int[,] playingBoard, int[] availableFields, int playedColumn, bool computerTurn, int depth, State state)
             {
-                CalculateColumnTaskScore(depth - 1);
-            }
-        }
+                //column not available
+                if (availableFields[playedColumn] == BOARDDEPTH) return;
+                //max depth reached
+                if (depth == SEARCHDEPTH) return;
 
+                int wantedNumber;
+                if (computerTurn) wantedNumber = 9;
+                else wantedNumber = 1;
 
-        static int[,] CloneBoard(int[,] playingBoard)
-        {
-            int[,] clone = new int[BOARDDEPTH,7];
-            for (int a = 0; a < BOARDDEPTH; ++a)
-            {
-                for (int b = 0; b < 7; ++b)
+                int[] cloneField = CloneField(availableFields);
+                int[,] cloneBoard = CloneBoard(playingBoard);
+                cloneBoard[cloneField[playedColumn], playedColumn] = wantedNumber;
+
+                ++cloneField[playedColumn];
+
+                State currentState = new State(idCounter, cloneBoard, cloneField, !computerTurn, playedColumn, depth, state);
+                if (currentState.rootState != null)
                 {
-                    clone[a, b] = playingBoard[a, b];
+                    currentState.rootState.children.Add(currentState);
+                }
+
+                ++idCounter;
+                mappedStates.Add(currentState);
+
+                if (depth < GRANULATIONLEVEL)
+                {
+                    for (int a = 0; a < 7; ++a)
+                    {
+                        CreateTaskPool(cloneBoard, cloneField, a, !computerTurn, depth + 1, currentState);
+                    }
                 }
             }
-            return clone;
+
+            void CalculateColumnTaskScore(int depth)
+            {
+                //max depth reached
+                foreach (State s in mappedStates)
+                {
+                    if (s.depth == depth - 1)
+                    {
+                        //calucating average
+                        List<double> scoreList = new List<double>();
+                        foreach (State child in s.children)
+                        {
+                            scoreList.Add(child.stateScore);
+                        }
+                        double endScore = 0;
+                        foreach (double columnScore in scoreList)
+                        {
+                            endScore += columnScore;
+                        }
+                        s.stateScore = endScore / scoreList.Count;
+                    }
+                }
+
+                if (depth - 1 > 0)
+                {
+                    CalculateColumnTaskScore(depth - 1);
+                }
+            }
+
+            int[,] CloneBoard(int[,] playingBoard)
+            {
+                int[,] clone = new int[BOARDDEPTH, 7];
+                for (int a = 0; a < BOARDDEPTH; ++a)
+                {
+                    for (int b = 0; b < 7; ++b)
+                    {
+                        clone[a, b] = playingBoard[a, b];
+                    }
+                }
+                return clone;
+            }
+
+            int[] CloneField(int[] playingField)
+            {
+                int[] clone = new int[7];
+                for (int a = 0; a < 7; ++a)
+                {
+                    clone[a] = playingField[a];
+                }
+                return clone;
+            }
+
         }
 
-        static int[] CloneField(int[] playingField)
+        [Serializable]
+        public class State
         {
-            int[] clone = new int[7];
-            for (int a = 0; a < 7; ++a)
+            public int stateId;
+            public int[,] board;
+            public int[] availableFields;
+            public bool computerTurn;
+            public int depth;
+            public int column;
+            public double stateScore;
+            public List<State> children = new List<State>();
+            public State rootState;
+
+            public State(int id, int[,] board, int[] availableFields, bool computerTurn, int column, int depth, State rootTask)
             {
-                clone[a] = playingField[a];
+                this.stateId = id;
+                this.board = board;
+                this.availableFields = availableFields;
+                this.computerTurn = computerTurn;
+                this.depth = depth;
+                this.rootState = rootTask;
+                this.column = column;
             }
-            return clone;
+
+            public State(int id)
+            {
+                stateId = id;
+            }
         }
 
     }
-
-    [Serializable]
-    public class State
-    {
-        public int stateId;
-        public int[,] board;
-        public int[] availableFields;
-        public bool computerTurn;
-        public int depth;
-        public int column;
-        public double stateScore;
-        public List<State> children = new List<State>();
-        public State rootState;
-
-        public State(int id, int[,] board, int[] availableFields, bool computerTurn, int column, int depth, State rootTask)
-        {
-            this.stateId = id;
-            this.board = board;
-            this.availableFields = availableFields;
-            this.computerTurn = computerTurn;
-            this.depth = depth;
-            this.rootState = rootTask;
-            this.column = column;
-        }
-
-        public State(int id)
-        {
-            stateId = id;
-        }
-
-
-    }
-
 }
