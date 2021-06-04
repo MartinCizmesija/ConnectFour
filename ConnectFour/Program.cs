@@ -39,8 +39,6 @@ namespace ConnectFour
                     int maxDepth = 1;
                     bool computerMove;
 
-                    Dictionary<int, double> gatheredValues = new Dictionary<int, double>();
-
                     //read who goes first
                     if (input.Equals("9")) computerMove = true;
                     else computerMove = false;
@@ -61,7 +59,6 @@ namespace ConnectFour
                             //create poll of states
                             idCounter = 0;
                             mappedStates.Clear();
-                            gatheredValues.Clear();
                             for (int a = 0; a < 7; ++a)
                             {
                                 CreateTaskPool(playingBoard, availableFields, a, computerMove, 0, null);
@@ -112,7 +109,6 @@ namespace ConnectFour
                                     scores[s.column] = s.stateScore;
                                     Console.WriteLine("column: " + s.stateScore);
                                 }
-                                //scores[s.column] = s.stateScore;
                             }
 
                             double maxScore = scores.Max();
@@ -126,9 +122,10 @@ namespace ConnectFour
                             if (zeroCoutner == 7) playingColumnNumber = rand.Next(0, 6);
                             else playingColumnNumber = scores.ToList().IndexOf(maxScore);
 
+                            //finaly decide what column to play
                             while (availableFields[playingColumnNumber] == BOARDDEPTH)
                             {
-                                if (zeroCoutner == 0) playingColumnNumber = rand.Next(0, 6);
+                                if (zeroCoutner == 7) playingColumnNumber = rand.Next(0, 6);
                                 else
                                 {
                                     scores[playingColumnNumber] = -1000;
@@ -265,6 +262,7 @@ namespace ConnectFour
                         comm.Send(comm.Rank, 0, 1);
                         comm.Receive(0, 0, out State workingState);
                         if (workingState.stateId == -100) break;
+                        //check if master sent request to gather data
                         if (workingState.stateId == -1) 
                         {
                             comm.Send(scoreMap, 0, 2);
@@ -274,19 +272,15 @@ namespace ConnectFour
                         }
                         if (scoreMap.ContainsKey(workingState.stateId)) continue;
 
-                        List<double> scoreList = new List<double>();
+                        double endScore = 0;
+                        int columnCounter = 0;
                         for (int a = 0; a < 7; ++a)
                         {
-                            scoreList.Add(CalculateColumnScore(workingState.board, workingState.availableFields, a, workingState.computerTurn, workingState.depth + 1));
+                            endScore += CalculateColumnScore(workingState.board, workingState.availableFields, a, workingState.computerTurn, workingState.depth + 1);
+                            ++columnCounter;
                         }
 
-                        double endScore = 0;
-                        foreach (double columnScore in scoreList)
-                        {
-                            endScore += columnScore;
-                        }
-
-                        workingState.stateScore = endScore / scoreList.Count;
+                        workingState.stateScore = endScore / columnCounter;
                         scoreMap.Add(workingState.stateId, workingState.stateScore);
                     }
                 }
@@ -344,10 +338,8 @@ namespace ConnectFour
 
             double CalculateColumnScore(int[,] playingBoard, int[] availableFields, int playedColumn, bool computerTurn, int depth)
             {
-                //column not available
-                if (availableFields[playedColumn] == BOARDDEPTH) return 0;
-                //max depth reached
-                if (depth == SEARCHDEPTH) return 0;
+                //column not available or max depth reached
+                if (availableFields[playedColumn] == BOARDDEPTH || depth == SEARCHDEPTH) return 0;
 
                 List<double> scoreList = new List<double>();
 
@@ -363,27 +355,21 @@ namespace ConnectFour
 
                 ++cloneField[playedColumn];
 
+                double endScore = 0;
+                int columnCount = 0;
                 for (int a = 0; a < 7; ++a)
                 {
-                    scoreList.Add(CalculateColumnScore(cloneBoard, cloneField, a, !computerTurn, depth + 1));
+                    endScore += CalculateColumnScore(cloneBoard, cloneField, a, !computerTurn, depth + 1);
+                    ++columnCount;
                 }
 
-                //calculating average score;
-                double endScore = 0;
-                foreach (double columnScore in scoreList)
-                {
-                    endScore += columnScore;
-                }
-
-                return endScore / scoreList.Count;
+                return endScore / columnCount;
             }
 
             void CreateTaskPool(int[,] playingBoard, int[] availableFields, int playedColumn, bool computerTurn, int depth, State state)
             {
-                //column not available
-                if (availableFields[playedColumn] == BOARDDEPTH) return;
-                //max depth reached
-                if (depth == SEARCHDEPTH) return;
+                //column not available or max depth reached
+                if (availableFields[playedColumn] == BOARDDEPTH || depth == SEARCHDEPTH) return;
 
                 int wantedNumber;
                 if (computerTurn) wantedNumber = 9;
@@ -421,17 +407,14 @@ namespace ConnectFour
                     if (s.depth == depth - 1)
                     {
                         //calucating average
-                        List<double> scoreList = new List<double>();
+                        double endScore = 0;
+                        int columnCount = 0;
                         foreach (State child in s.children)
                         {
-                            scoreList.Add(child.stateScore);
+                            endScore += child.stateScore;
+                            ++columnCount;
                         }
-                        double endScore = 0;
-                        foreach (double columnScore in scoreList)
-                        {
-                            endScore += columnScore;
-                        }
-                        s.stateScore = endScore / scoreList.Count;
+                        s.stateScore = endScore / columnCount;
                     }
                 }
 
