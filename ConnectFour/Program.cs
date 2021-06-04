@@ -341,8 +341,6 @@ namespace ConnectFour
                 //column not available or max depth reached
                 if (availableFields[playedColumn] == BOARDDEPTH || depth == SEARCHDEPTH) return 0;
 
-                List<double> scoreList = new List<double>();
-
                 int wantedNumber;
                 if (computerTurn) wantedNumber = 9;
                 else wantedNumber = 1;
@@ -402,7 +400,7 @@ namespace ConnectFour
             void CalculateColumnTaskScore(int depth)
             {
                 //max depth reached
-                foreach (State s in mappedStates)
+                foreach (State s in mappedStates.ToList())
                 {
                     if (s.depth == depth - 1)
                     {
@@ -413,6 +411,7 @@ namespace ConnectFour
                         {
                             endScore += child.stateScore;
                             ++columnCount;
+                            mappedStates.Remove(child);
                         }
                         s.stateScore = endScore / columnCount;
                     }
